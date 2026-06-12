@@ -28,6 +28,16 @@ var _ domain.Tracer = (*Tracer)(nil)
 // NewTracer membuat tracer baru dari config.
 // Panggil sekali saat inisialisasi aplikasi; gunakan Shutdown saat aplikasi selesai.
 func NewTracer(cfg config.Config) (*Tracer, error) {
+	return newTracerWithServiceName(cfg, cfg.ServiceName, true)
+}
+
+// NewTracerForService membuat tracer dengan service.name tertentu (untuk multi-service dalam satu process).
+// Tidak meng-set global otel.TracerProvider; dipakai oleh tracing.GetTracingForService.
+func NewTracerForService(cfg config.Config, serviceName string) (*Tracer, error) {
+	return newTracerWithServiceName(cfg, serviceName, false)
+}
+
+func newTracerWithServiceName(cfg config.Config, serviceName string, setGlobal bool) (*Tracer, error) {
 	serverIP := cfg.ServerIP
 	if serverIP == "" {
 		serverIP = getOutboundIP()
@@ -39,9 +49,16 @@ func NewTracer(cfg config.Config) (*Tracer, error) {
 	var opts []sdktrace.TracerProviderOption
 	opts = append(opts, sdktrace.WithResource(resource.NewWithAttributes(
 		"", // schema URL (optional)
-		attribute.String("service.name", cfg.ServiceName),
+		attribute.String("service.name", serviceName),
 		attribute.String("server.ip", serverIP),
 	)))
+
+	// Sampling: jika SampleRatio > 0 dan < 1, gunakan TraceIDRatioBased untuk mengurangi overhead.
+	if cfg.SampleRatio > 0 && cfg.SampleRatio < 1 {
+		opts = append(opts, sdktrace.WithSampler(
+			sdktrace.ParentBased(sdktrace.TraceIDRatioBased(cfg.SampleRatio)),
+		))
+	}
 
 	if cfg.Endpoint != "" {
 		expOpts := []otlptracehttp.Option{
@@ -58,7 +75,9 @@ func NewTracer(cfg config.Config) (*Tracer, error) {
 	}
 
 	provider := sdktrace.NewTracerProvider(opts...)
-	otel.SetTracerProvider(provider)
+	if setGlobal {
+		otel.SetTracerProvider(provider)
+	}
 
 	return &Tracer{
 		provider: provider,

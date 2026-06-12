@@ -11,9 +11,9 @@ type Span interface {
 	Tag(key, value string)
 	// Info mencatat log level Info. Parameter: scope/label, message.
 	Info(scope, message string)
-	// Error mencatat log level Error.
+	// Error mencatat log level Error dan menandai span sebagai ERROR di Jaeger.
 	Error(scope, message string)
-	// Warning mencatat log level Warning.
+	// Warning mencatat log level Warning dan menambah tag span.status=Warning di Jaeger.
 	Warning(scope, message string)
 	// Debug mencatat log level Debug.
 	Debug(scope, message string)

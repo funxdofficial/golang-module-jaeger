@@ -6,6 +6,7 @@ import (
 
 	"github.com/funxdofficial/golang-module-jaeger/domain"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -63,11 +64,21 @@ func (s *span) Info(scope, message string) {
 
 func (s *span) Error(scope, message string) {
 	s.addEvent(domain.LevelError, scope, message)
-	// Error already recorded in event with level_id "Error"; SetStatus would require go.opentelemetry.io/otel/codes
+	s.otelSpan.SetStatus(codes.Error, message)
+	s.otelSpan.SetAttributes(
+		attribute.String("error.scope", scope),
+		attribute.String("error.message", message),
+	)
 }
 
 func (s *span) Warning(scope, message string) {
 	s.addEvent(domain.LevelWarning, scope, message)
+	// OpenTelemetry tidak punya status Warning; tandai lewat tag span agar bisa difilter di Jaeger.
+	s.otelSpan.SetAttributes(
+		attribute.String("span.status", "Warning"),
+		attribute.String("warning.scope", scope),
+		attribute.String("warning.message", message),
+	)
 }
 
 func (s *span) Debug(scope, message string) {

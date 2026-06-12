@@ -1,4 +1,4 @@
-// Contoh penggunaan modul tracing dengan pola yang diminta.
+// Contoh penggunaan modul tracing: satu service (GetTracing) dan multi-service (GetTracingForService).
 package main
 
 import (
@@ -12,25 +12,35 @@ import (
 )
 
 func main() {
-	// Inisialisasi tracer sekali di startup
+	// Opsi 1: Satu service (default) dengan sampling ratio untuk mengontrol overhead.
 	cfg := config.Config{
 		ServiceName: "example-service",
 		Endpoint:    "http://localhost:4318",
 		ServerIP:    "",
 		Insecure:    true,
+		// Misal: 0.1 = sekitar 10% request yang di-trace.
+		// Untuk traffic sangat tinggi bisa turunkan lagi, mis. 0.01.
+		SampleRatio: 0.1,
 	}
+
+	// Opsi 2: Multi-service (dari env atau DB); uncomment untuk coba
+	// cfg.ServiceNames = config.ParseServiceNames(os.Getenv("JAEGER_SERVICE_NAMES")) // "order-service, payment-service"
+	// atau: cfg.ServiceNames = []string{"order-service", "payment-service"}
+
 	if err := tracing.Init(cfg); err != nil {
 		log.Printf("tracing init (no-op): %v", err)
-		// Tetap jalan; GetTracing() akan pakai no-op
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Contoh: panggil controller/handler
+	// Contoh: tracer default (satu service)
 	InquiryAccount(ctx)
 
-	// Graceful shutdown
+	// Contoh: tracer per service name (muncul terpisah di Jaeger bila ServiceNames di-set)
+	CreateOrder(ctx)
+	ProcessPayment(ctx)
+
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
 	<-sig
@@ -39,15 +49,40 @@ func main() {
 	}
 }
 
-// InquiryAccount contoh function yang memakai tracing seperti requirement.
+// InquiryAccount memakai tracer default (GetTracing).
 func InquiryAccount(ctx context.Context) {
-	trace := tracing.GetTracing().Operation(ctx,
+	span := tracing.GetTracing().Operation(ctx,
 		tracing.NewInteractionName("Controller InquiryAccount"),
-		tracing.NewInteractionTypeType("controllers"))
-	defer trace.Finish()
+		tracing.NewInteractionTypeName("controllers"))
+	defer span.Finish()
 
-	trace.Info("Request", "inquiry account request received")
-	trace.Debug("Payload", "checking payload")
-	// ... logic ...
-	trace.Info("Response", "inquiry account success")
+	span.Info("Request", "inquiry account request received")
+	span.Debug("Payload", "checking payload")
+	span.Info("Response", "inquiry account success")
+}
+
+// CreateOrder memakai GetTracingForService agar muncul sebagai "order-service" di Jaeger.
+func CreateOrder(ctx context.Context) {
+	t := tracing.GetTracingForService("order-service")
+	span := t.Operation(ctx,
+		tracing.NewInteractionName("Handler CreateOrder"),
+		tracing.NewInteractionTypeName("handlers"))
+	defer span.Finish()
+
+	span.Tag("order_id", "ord-001")
+	span.Info("Request", "create order")
+	span.Info("Response", "order created")
+}
+
+// ProcessPayment memakai GetTracingForService agar muncul sebagai "payment-service" di Jaeger.
+func ProcessPayment(ctx context.Context) {
+	t := tracing.GetTracingForService("payment-service")
+	span := t.Operation(ctx,
+		tracing.NewInteractionName("Handler ProcessPayment"),
+		tracing.NewInteractionTypeName("handlers"))
+	defer span.Finish()
+
+	span.Tag("payment_id", "pay-001")
+	span.Info("Request", "process payment")
+	span.Info("Response", "payment completed")
 }
